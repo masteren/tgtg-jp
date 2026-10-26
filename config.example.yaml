@@ -3,10 +3,6 @@
 # TGTG アカウントのメールアドレス
 email: ""
 
-discord:
-  # 環境変数 DISCORD_WEBHOOK_URL があればそちらを優先します。
-  webhook_url: ""
-
 polling:
   interval_seconds: 120   # 60 秒未満は設定不可
   jitter_seconds: 20      # 毎回 0〜この秒数をランダムに足す
@@ -23,5 +19,15 @@ quiet_hours:
 
 timezone: "Asia/Tokyo"
 
-# ログイン情報と通知履歴の保存先（既定: ~/.config/tgtg-jp）
+# 在庫ボード（Web ページ）
+web:
+  enabled: true
+  host: "127.0.0.1"   # サーバー内部のみ。外部公開する場合は環境変数 TGTG_JP_WEB_PASSWORD が必須
+  port: 8787
+
+# Discord 通知（任意）。使う場合は環境変数 DISCORD_WEBHOOK_URL で渡すのがおすすめ。
+discord:
+  webhook_url: ""
+
+# ログイン情報と在庫履歴の保存先（既定: ~/.config/tgtg-jp）
 # state_dir: "~/.config/tgtg-jp"

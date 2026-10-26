@@ -6,13 +6,15 @@ import argparse
 import logging
 import signal
 import sys
+import time
 
 from .client import (AccessDenied, ApiError, CredentialStore, RateLimited, fetch_favorites,
                      from_saved, login_by_email, snapshot)
 from .config import ConfigError, load_config
-from .monitor import Monitor
+from .monitor import Monitor, StatusBoard
 from .notify import DiscordNotifier, NotifyError
 from .watcher import StockTracker, parse_bags
+from .web import start_server
 
 log = logging.getLogger("tgtg_jp")
 
@@ -53,19 +55,38 @@ def cmd_test_notify(config, args) -> int:
 
 def cmd_run(config, args) -> int:
     client = _client(config)
-    notifier = DiscordNotifier(config.discord_webhook_url, config.timezone)
+    notifier = DiscordNotifier(config.discord_webhook_url, config.timezone) \
+        if config.discord_webhook_url else None
+    if notifier is None and not config.web.enabled:
+        raise ConfigError("Discord 通知も在庫ボードも無効です。どちらかを有効にしてください。")
     tracker = StockTracker(config.notified_path)
-    monitor = Monitor(config, client, notifier, tracker, CredentialStore(config.credentials_path))
+    board = StatusBoard()
+    monitor = Monitor(config, client, notifier, tracker, CredentialStore(config.credentials_path),
+                      board=board)
     signal.signal(signal.SIGINT, monitor.request_stop)
     signal.signal(signal.SIGTERM, monitor.request_stop)
-    return monitor.run()
+
+    server = start_server(board, config) if config.web.enabled else None
+    if notifier is None:
+        log.info("Discord 通知は無効です（在庫ボードのみ）。")
+    try:
+        code = monitor.run()
+        # 停止理由をページで確認できるよう、確認を止めてもボードは開いたままにする。
+        if code != 0 and server is not None:
+            log.info("在庫ボードは表示を続けます。終了するには Ctrl+C / systemctl stop。")
+            while not monitor.stop_requested:
+                time.sleep(1)
+        return code
+    finally:
+        if server is not None:
+            server.shutdown()
 
 
 COMMANDS = {
     "login": (cmd_login, "メール認証でログインし、トークンを保存する"),
     "favorites": (cmd_favorites, "お気に入りの item_id と在庫を一覧表示する"),
-    "test-notify": (cmd_test_notify, "Discord にテスト通知を送る"),
-    "run": (cmd_run, "監視を開始する"),
+    "test-notify": (cmd_test_notify, "Discord にテスト通知を送る（Discord を使う場合）"),
+    "run": (cmd_run, "監視と在庫ボードを開始する"),
 }
 
 

@@ -31,6 +31,17 @@ class QuietHours:
         return minute_of_day >= self.start or minute_of_day < self.end
 
 
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+@dataclass(frozen=True)
+class WebConfig:
+    enabled: bool = True
+    host: str = "127.0.0.1"  # 既定ではサーバー内部からのみアクセス可能
+    port: int = 8787
+    password: str = ""  # 環境変数 TGTG_JP_WEB_PASSWORD から
+
+
 @dataclass(frozen=True)
 class Config:
     email: str
@@ -42,6 +53,7 @@ class Config:
     max_pages: int = 3
     timezone: str = "Asia/Tokyo"
     state_dir: Path = DEFAULT_STATE_DIR
+    web: WebConfig = field(default_factory=WebConfig)
 
     @property
     def credentials_path(self) -> Path:
@@ -96,6 +108,20 @@ def parse_config(raw: dict) -> Config:
 
     targets = frozenset(str(t).strip() for t in (raw.get("targets") or []) if str(t).strip())
 
+    web_raw = raw.get("web") or {}
+    port = web_raw.get("port", 8787)
+    if type(port) is not int or not 1024 <= port <= 65535:
+        raise ConfigError("web.port は 1024〜65535 の整数にしてください。")
+    web = WebConfig(
+        enabled=web_raw.get("enabled", True) is not False,
+        host=str(web_raw.get("host") or "127.0.0.1"),
+        port=port,
+        password=os.environ.get("TGTG_JP_WEB_PASSWORD", ""),
+    )
+    if web.enabled and web.host not in LOOPBACK_HOSTS and len(web.password) < 12:
+        raise ConfigError("web.host を外部に公開する場合は、環境変数 TGTG_JP_WEB_PASSWORD に"
+                          "12 文字以上のパスワードを設定してください。")
+
     state_dir = raw.get("state_dir")
     return Config(
         email=email,
@@ -107,6 +133,7 @@ def parse_config(raw: dict) -> Config:
         max_pages=max_pages,
         timezone=str(raw.get("timezone") or "Asia/Tokyo"),
         state_dir=Path(state_dir).expanduser() if state_dir else DEFAULT_STATE_DIR,
+        web=web,
     )
 
 

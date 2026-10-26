@@ -101,35 +101,48 @@ def parse_bags(items: list[dict], targets: frozenset[str] = frozenset()) -> list
     return bags
 
 
-class StockTracker:
-    """在庫が「0 → あり」になった出品だけを通知対象にする。
+def _utcnow() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
 
-    通知済みの出品は在庫がある間は再通知しない。売り切れたら記録を消すので、
-    同じ受取枠で再入荷したときはもう一度通知される。記録はファイルに残すため、
-    再起動しても同じ出品を二重に通知しない。
+
+class StockTracker:
+    """在庫のある出品を追跡し、入荷時刻と通知済みかどうかを記録する。
+
+    在庫が「0 → あり」になった出品だけを通知対象にし、在庫がある間は再通知しない。
+    売り切れたら記録を消すので、同じ受取枠で再入荷したときはもう一度通知される。
+    記録はファイルに残すため、再起動しても入荷時刻を保ち、二重に通知しない。
     """
 
     def __init__(self, path: Path | None = None):
         self.path = Path(path) if path else None
-        self.notified: dict[str, str | None] = {}  # key -> pickup_end (ISO)
+        self.seen: dict[str, dict] = {}  # key -> {"since": ISO, "notified": bool}
         if self.path and self.path.exists():
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
-                    self.notified = {str(k): v for k, v in data.items()}
+                    self.seen = {str(k): v for k, v in data.items()
+                                 if isinstance(v, dict) and isinstance(v.get("since"), str)}
             except (OSError, ValueError):
-                self.notified = {}
+                self.seen = {}
 
-    def pending(self, bags: list[Bag]) -> list[Bag]:
-        """通知すべき出品を返し、売り切れた出品の記録を消す。"""
+    def update(self, bags: list[Bag], now: dt.datetime | None = None) -> list[Bag]:
+        """在庫状況を反映し、まだ通知していない在庫ありの出品を返す。"""
+        now = now or _utcnow()
         in_stock = {b.key: b for b in bags if b.available > 0}
-        for key in list(self.notified):
+        for key in list(self.seen):
             if key not in in_stock:
-                del self.notified[key]
-        return [b for k, b in in_stock.items() if k not in self.notified]
+                del self.seen[key]
+        for key in in_stock:
+            self.seen.setdefault(key, {"since": now.isoformat(), "notified": False})
+        return [b for k, b in in_stock.items() if not self.seen[k]["notified"]]
 
     def mark(self, bag: Bag) -> None:
-        self.notified[bag.key] = bag.pickup_end.isoformat() if bag.pickup_end else None
+        entry = self.seen.setdefault(bag.key, {"since": _utcnow().isoformat(), "notified": False})
+        entry["notified"] = True
+
+    def since(self, bag: Bag) -> dt.datetime | None:
+        entry = self.seen.get(bag.key)
+        return _parse_time(entry["since"]) if entry else None
 
     def save(self) -> None:
         if not self.path:
@@ -138,5 +151,5 @@ class StockTracker:
         tmp = self.path.with_suffix(".tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(self.notified, f, ensure_ascii=False)
+            json.dump(self.seen, f, ensure_ascii=False)
         os.replace(tmp, self.path)

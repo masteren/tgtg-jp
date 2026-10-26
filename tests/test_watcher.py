@@ -26,36 +26,50 @@ def test_targets_filter():
 def test_notifies_once_while_in_stock():
     tracker = StockTracker()
     bags = parse_bags([make_item(available=3)])
-    first = tracker.pending(bags)
+    first = tracker.update(bags)
     assert len(first) == 1
     tracker.mark(first[0])
     # 在庫数が変わっても同じ出品なら再通知しない
-    assert tracker.pending(parse_bags([make_item(available=1)])) == []
+    assert tracker.update(parse_bags([make_item(available=1)])) == []
 
 
 def test_restock_after_sellout_notifies_again():
     tracker = StockTracker()
-    tracker.mark(tracker.pending(parse_bags([make_item()]))[0])
-    assert tracker.pending(parse_bags([make_item(available=0)])) == []
-    assert len(tracker.pending(parse_bags([make_item(available=1)]))) == 1
+    tracker.mark(tracker.update(parse_bags([make_item()]))[0])
+    assert tracker.update(parse_bags([make_item(available=0)])) == []
+    assert len(tracker.update(parse_bags([make_item(available=1)]))) == 1
 
 
 def test_new_pickup_window_is_a_new_listing():
     tracker = StockTracker()
-    tracker.mark(tracker.pending(parse_bags([make_item()]))[0])
+    tracker.mark(tracker.update(parse_bags([make_item()]))[0])
     tomorrow = make_item(start="2026-10-27T09:00:00Z", end="2026-10-27T10:00:00Z")
-    assert len(tracker.pending(parse_bags([tomorrow]))) == 1
+    assert len(tracker.update(parse_bags([tomorrow]))) == 1
 
 
 def test_state_survives_restart(tmp_path):
     path = tmp_path / "notified.json"
     tracker = StockTracker(path)
-    tracker.mark(tracker.pending(parse_bags([make_item()]))[0])
+    tracker.mark(tracker.update(parse_bags([make_item()]))[0])
     tracker.save()
-    assert StockTracker(path).pending(parse_bags([make_item()])) == []
+    assert StockTracker(path).update(parse_bags([make_item()])) == []
+
+
+def test_arrival_time_is_kept_until_sold_out(tmp_path):
+    import datetime as dt
+    t0 = dt.datetime(2026, 10, 26, 3, 0, tzinfo=dt.timezone.utc)
+    path = tmp_path / "notified.json"
+    tracker = StockTracker(path)
+    bag = parse_bags([make_item()])[0]
+    tracker.update([bag], t0)
+    tracker.update([bag], t0 + dt.timedelta(minutes=5))
+    tracker.save()
+    assert StockTracker(path).since(bag) == t0
+    tracker.update([], t0 + dt.timedelta(minutes=10))
+    assert tracker.since(bag) is None
 
 
 def test_corrupt_state_file_is_ignored(tmp_path):
     path = tmp_path / "notified.json"
     path.write_text("{broken")
-    assert len(StockTracker(path).pending(parse_bags([make_item()]))) == 1
+    assert len(StockTracker(path).update(parse_bags([make_item()]))) == 1
