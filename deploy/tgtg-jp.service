@@ -1,0 +1,21 @@
+[Unit]
+Description=tgtg-jp: Too Good To Go stock notifier
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/tgtg-jp
+EnvironmentFile=-/home/ubuntu/tgtg-jp/.env
+ExecStart=/home/ubuntu/tgtg-jp/.venv/bin/python -m tgtg_jp run
+# ネットワーク障害などで落ちたら再起動。
+# 終了コード 2（アクセス拒否・ログイン切れ）は人の対応が必要なので再起動しない。
+Restart=on-failure
+RestartSec=300
+RestartPreventExitStatus=2
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+# 個人情報・秘密情報
+config.yaml
+.env
+credentials.json
+notified.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# OS
+.DS_Store

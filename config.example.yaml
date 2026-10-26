@@ -1,0 +1,27 @@
+# config.yaml にコピーして編集してください（config.yaml は Git 管理外）。
+
+# TGTG アカウントのメールアドレス
+email: ""
+
+discord:
+  # 環境変数 DISCORD_WEBHOOK_URL があればそちらを優先します。
+  webhook_url: ""
+
+polling:
+  interval_seconds: 120   # 60 秒未満は設定不可
+  jitter_seconds: 20      # 毎回 0〜この秒数をランダムに足す
+  max_pages: 3            # お気に入り 20 件 × ページ数まで取得
+
+# 空ならお気に入り全件を監視。`python -m tgtg_jp favorites` で item_id を確認できます。
+targets: []
+#  - "123456"
+
+# この時間帯はリクエストを送らない（日付またぎ可）
+quiet_hours:
+  start: "23:00"
+  end: "07:00"
+
+timezone: "Asia/Tokyo"
+
+# ログイン情報と通知履歴の保存先（既定: ~/.config/tgtg-jp）
+# state_dir: "~/.config/tgtg-jp"
