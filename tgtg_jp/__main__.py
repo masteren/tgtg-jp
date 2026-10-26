@@ -11,6 +11,7 @@ import time
 from .client import (AccessDenied, ApiError, CredentialStore, RateLimited, fetch_favorites,
                      from_saved, login_by_email, snapshot)
 from .config import ConfigError, load_config
+from .demo import SCENARIOS, DemoClient, demo_config
 from .monitor import Monitor, StatusBoard
 from .notify import DiscordNotifier, NotifyError
 from .watcher import StockTracker, parse_bags
@@ -59,16 +60,30 @@ def cmd_run(config, args) -> int:
         if config.discord_webhook_url else None
     if notifier is None and not config.web.enabled:
         raise ConfigError("Discord 通知も在庫ボードも無効です。どちらかを有効にしてください。")
+    if notifier is None:
+        log.info("Discord 通知は無効です（在庫ボードのみ）。")
+    return _serve_and_monitor(config, client, notifier, CredentialStore(config.credentials_path))
+
+
+def cmd_demo(args) -> int:
+    config = demo_config(args.interval, args.host, args.port)
+    client = DemoClient(args.scenario, seed=args.seed)
+    log.info("デモモード: 架空のデータで動かします（TGTG には接続しません）。シナリオ: %s", args.scenario)
+    log.info("ブラウザで http://%s:%d/ を開いてください。",
+             "localhost" if args.host in ("127.0.0.1", "::1") else args.host, args.port)
     tracker = StockTracker(config.notified_path)
+    client.backdate(tracker)
+    return _serve_and_monitor(config, client, None, None, tracker)
+
+
+def _serve_and_monitor(config, client, notifier, credentials, tracker=None) -> int:
+    tracker = tracker or StockTracker(config.notified_path)
     board = StatusBoard()
-    monitor = Monitor(config, client, notifier, tracker, CredentialStore(config.credentials_path),
-                      board=board)
+    monitor = Monitor(config, client, notifier, tracker, credentials, board=board)
     signal.signal(signal.SIGINT, monitor.request_stop)
     signal.signal(signal.SIGTERM, monitor.request_stop)
 
     server = start_server(board, config) if config.web.enabled else None
-    if notifier is None:
-        log.info("Discord 通知は無効です（在庫ボードのみ）。")
     try:
         code = monitor.run()
         # 停止理由をページで確認できるよう、確認を止めてもボードは開いたままにする。
@@ -97,6 +112,13 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     for name, (_, help_text) in COMMANDS.items():
         sub.add_parser(name, help=help_text)
+    demo = sub.add_parser("demo", help="架空のデータで在庫ボードを動かす（ログイン・設定ファイル不要）")
+    demo.add_argument("--scenario", choices=SCENARIOS, default="normal",
+                      help="normal: 通常 / blocked: 4 回目で 403 / ratelimit: 3〜4 回目で 429")
+    demo.add_argument("--interval", type=int, default=10, help="確認間隔（秒、3 以上。既定: 10）")
+    demo.add_argument("--host", default="127.0.0.1", help="待ち受けアドレス（既定: 127.0.0.1）")
+    demo.add_argument("--port", type=int, default=8787, help="ポート（既定: 8787）")
+    demo.add_argument("--seed", type=int, default=None, help="乱数シード（再現用）")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
@@ -105,6 +127,10 @@ def main(argv=None) -> int:
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
     try:
+        if args.command == "demo":
+            if args.interval < 3:
+                raise ConfigError("--interval は 3 秒以上にしてください。")
+            return cmd_demo(args)
         config = load_config(args.config)
         return COMMANDS[args.command][0](config, args)
     except AccessDenied as exc:

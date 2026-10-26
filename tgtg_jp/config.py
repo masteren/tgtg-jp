@@ -54,6 +54,7 @@ class Config:
     timezone: str = "Asia/Tokyo"
     state_dir: Path = DEFAULT_STATE_DIR
     web: WebConfig = field(default_factory=WebConfig)
+    demo: bool = False  # 架空データで動かすデモモード
 
     @property
     def credentials_path(self) -> Path:

@@ -39,8 +39,16 @@ body {
   font-size: 1rem; line-height: 1.6;
 }
 main { max-width: 36rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
-.top { display: flex; justify-content: space-between; gap: 1rem; color: var(--muted); font-size: .8125rem; }
+.top {
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline;
+  gap: .25rem 1rem; color: var(--muted); font-size: .8125rem;
+}
+.top > span:last-child { white-space: nowrap; }
 .top b { color: var(--ink); font-weight: 700; }
+.demo {
+  margin-left: .5rem; padding: .0625rem .5rem; border: 1px solid var(--muted);
+  border-radius: 999px; font-size: .75rem; white-space: nowrap;
+}
 h1 {
   margin: 1.75rem 0 .25rem; font-weight: 900; letter-spacing: -.01em;
   font-size: clamp(1.75rem, 7.5vw, 2.5rem); line-height: 1.2;
@@ -116,11 +124,17 @@ def ago_label(since: dt.datetime | None, now: dt.datetime) -> str:
     return f"{minutes // 60} 時間前に入荷"
 
 
-def _notice(status: Status, tz: str) -> str:
+def _notice(status: Status, config: Config) -> str:
     msg = escape(status.message)
     if status.state == "stopped":
+        hint = ("デモの --scenario blocked で再現したアクセス拒否です。" if config.demo
+                else "対応後に <code>sudo systemctl restart tgtg-jp</code> で再開します。")
+        stale = ""
+        if status.bags and status.checked_at:
+            stale = (f"<br>下の在庫は停止前（{_local(status.checked_at, config.timezone):%H:%M}）の情報で、"
+                     "更新されていません。")
         return (f'<div class="notice" role="alert"><strong>確認を停止しました。</strong>{msg}<br>'
-                "対応後に <code>sudo systemctl restart tgtg-jp</code> で再開します。</div>")
+                f"{hint}{stale}</div>")
     if status.state == "retrying":
         return f'<div class="notice"><strong>確認に失敗しました。</strong>{msg} 自動で再試行します。</div>'
     return ""
@@ -133,7 +147,8 @@ def _headline(status: Status, in_stock: list[Bag], now: dt.datetime, tz: str) ->
         return "<h1>最初の確認を待っています</h1><p class=\"lede\">起動から数秒で表示されます。</p>"
     if in_stock:
         stores = len({b.item_id for b in in_stock})
-        return f'<h1><span class="count">{stores}</span> 店に在庫があります</h1>'
+        verb = "ありました" if status.state == "stopped" else "あります"
+        return f'<h1><span class="count">{stores}</span> 店に在庫が{verb}</h1>'
     lede = "公式アプリで店舗をお気に入り登録すると、ここに表示されます。" if not status.bags else \
         "入荷するとこのページに表示されます。"
     if status.state == "quiet" and status.next_check_at:
@@ -175,6 +190,7 @@ def render_page(status: Status, config: Config, now: dt.datetime | None = None) 
         if status.next_check_at and status.state in ("ok", "retrying"):
             checked += f"　次回 {_local(status.next_check_at, tz):%H:%M}"
 
+    demo_tag = '<span class="demo">デモ（架空のデータ）</span>' if config.demo else ""
     items = "\n".join(_bag_item(b, status, now, tz) for b in in_stock)
     listing = f"<ul>{items}</ul>" if in_stock else ""
     rest = ""
@@ -191,7 +207,7 @@ def render_page(status: Status, config: Config, now: dt.datetime | None = None) 
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="{REFRESH_SECONDS}">
 <meta name="robots" content="noindex">
-<title>TGTG 在庫ボード</title>
+<title>TGTG 在庫ボード{"（デモ）" if config.demo else ""}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700;900&display=swap">
@@ -199,9 +215,9 @@ def render_page(status: Status, config: Config, now: dt.datetime | None = None) 
 </head>
 <body>
 <main>
-  <div class="top"><span>TGTG 在庫ボード</span><span>{checked}</span></div>
+  <div class="top"><span>TGTG 在庫ボード{demo_tag}</span><span>{checked}</span></div>
   {_headline(status, in_stock, now, tz)}
-  {_notice(status, tz)}
+  {_notice(status, config)}
   {listing}
   {rest}
   <footer>1 分ごとに自動で更新します。購入は公式アプリで行ってください。</footer>
